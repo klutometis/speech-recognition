@@ -1,9 +1,8 @@
 (ns speech-recognition.hear
   (:use [clojure.data.json :as json]
-        [clj-http.client :as http])
-  (:import (java.io File
-                    FileOutputStream)
-           (javax.sound.sampled AudioFormat
+        [fs.core :as fs])
+  (:require [clj-http.client :as client])
+  (:import (javax.sound.sampled AudioFormat
                                 AudioSystem
                                 AudioInputStream
                                 AudioFileFormat
@@ -36,45 +35,31 @@
        *signed*
        *big-endian*))
 
-(def ^:dynamic *prefix* "iris")
-
-(def create-temporary-file
-  (fn [suffix] (File/createTempFile *prefix* suffix)))
-
-(def create-temporary-wave
-  (fn [] (create-temporary-file ".wav")))
-
-(def create-temporary-flac
-  (fn [] (create-temporary-file ".flac")))
-
-(def post-to-google
-  (fn [flac]
-     (:body
-      (http/post
+(defn post-to-google [flac]
+  (:body
+      (client/post
        *google-url*
        {:multipart [["Content" flac]]
         :headers {"Content-type"
-                  (format "audio/x-flac; rate=%s" *sample-rate*)}}))))
+                  (format "audio/x-flac; rate=%s" *sample-rate*)}})))
 
-(def sort-hypotheses
-  (fn [hypotheses]
-     (sort-by (fn [hypothesis]
+(defn sort-hypotheses [hypotheses]
+  (sort-by (fn [hypothesis]
                  (let [{utterance :utterance confidence :confidence}
                        hypothesis]
                    confidence))
               >
-              hypotheses)))
+              hypotheses))
 
-(def parse-response
-  (fn [response]
-     (let [{status :status
-            id :id
-            hypotheses :hypotheses}
-           (json/read-json response)
-           {utterance :utterance
-            confidence :confidence}
-           (first (sort-hypotheses hypotheses))]
-       utterance)))
+(defn parse-response [response]
+  (let [{status :status
+         id :id
+         hypotheses :hypotheses}
+        (json/read-json response)
+        {utterance :utterance
+         confidence :confidence}
+        (first (sort-hypotheses hypotheses))]
+    utterance))
 
 (defn hear []
   (let [mixer-info (clojure.core/get (AudioSystem/getMixerInfo) *input-index*)
@@ -91,8 +76,8 @@
                 (.close target)
                 (println "I'm considering."))))
     (let [input-stream (new AudioInputStream target)]
-      (let [wave (create-temporary-wave)
-            flac (create-temporary-flac)]
+      (let [wave (fs/temp-file "hear" ".wav")
+            flac (fs/temp-file "hear" ".flac")]
         (AudioSystem/write input-stream
                            AudioFileFormat$Type/WAVE
                            wave)
